@@ -1,0 +1,51 @@
+- pattern_id: apply.hunk_failed
+  category: patch_apply
+  reason_code: hunk_failed
+  matchers:
+    - "hunk FAILED"
+    - "patch does not apply"
+    - "fuzz"
+  action: rewrite
+  auto_retry_allowed: true
+  requires_human_review: false
+
+- pattern_id: compile.api_args
+  category: compile
+  reason_code: api_mismatch
+  matchers:
+    - "too many arguments to function"
+    - "too few arguments to function"
+  action: rewrite
+  auto_retry_allowed: true
+  requires_human_review: false
+
+- pattern_id: kpatch.no_fentry
+  category: kpatch_limit
+  reason_code: no_fentry
+  matchers:
+    - "no fentry call"
+    - "function is not traceable"
+  action: manual_required
+  auto_retry_allowed: false
+  requires_human_review: true
+
+- pattern_id: kpatch.data_change
+  category: kpatch_limit
+  reason_code: struct_or_data_change
+  matchers:
+    - "data structure layout change"
+    - "static variable changed"
+    - "unreconcilable difference"
+  action: manual_required
+  auto_retry_allowed: false
+  requires_human_review: true
+
+- pattern_id: env.no_vmlinux
+  category: env_missing
+  reason_code: missing_vmlinux
+  matchers:
+    - "vmlinux not found"
+    - "cannot find vmlinux"
+  action: fix_environment
+  auto_retry_allowed: false
+  requires_human_review: false

@@ -1,0 +1,36 @@
+- strategy_id: context_drift
+  description: "Re-contextualize hunk to match target source tree"
+  allowed: true
+  semantic_guards:
+    - "must_preserve_all_added_checks"
+    - "must_preserve_error_return_paths"
+  validation:
+    - "git apply --check"
+
+- strategy_id: api_mismatch
+  description: "Adapt function call to match target kernel API"
+  allowed: true
+  semantic_guards:
+    - "must_preserve_security_boundary_checks"
+    - "must_preserve_error_return_paths"
+  validation:
+    - "git apply --check"
+    - "kpatch-build"
+
+- strategy_id: no_fentry_hoist
+  description: "Move fix to a hookable caller function"
+  allowed: false
+  requires_human_review: true
+  semantic_guards:
+    - "must_not_broaden_fix_scope"
+    - "must_cover_all_vulnerability_paths"
+  validation:
+    - "manual_semantic_review"
+
+- strategy_id: struct_abi
+  description: "Structure ABI change - not auto-rewritable"
+  allowed: false
+  requires_human_review: true
+  semantic_guards:
+    - "do_not_auto_rewrite_abi_changes"
+  validation: []

@@ -1,0 +1,94 @@
+"""kpatch-build integration - execute builds and capture results."""
+import json
+import os
+import subprocess
+import hashlib
+import shutil
+from datetime import datetime
+from typing import Dict, Optional
+
+
+class KpatchBuilder:
+    """Wrapper around kpatch-build tool."""
+
+    def __init__(self, workdir: str, cve_id: str):
+        self.workdir = workdir
+        self.cve_id = cve_id
+        self.logs_dir = os.path.join(workdir, cve_id, "logs")
+        self.artifacts_dir = os.path.join(workdir, cve_id, "artifacts")
+        os.makedirs(self.logs_dir, exist_ok=True)
+        os.makedirs(self.artifacts_dir, exist_ok=True)
+
+    def build(self, patch_path: str, source_dir: str, vmlinux_path: str,
+              kernel_source_rpm: Optional[str] = None,
+              kernel_devel_path: Optional[str] = None,
+              attempt: int = 1) -> Dict:
+        log_path = os.path.join(self.logs_dir, f"build_{attempt}.log")
+        result = {
+            "attempt": attempt,
+            "input_patch": patch_path,
+            "source_dir": source_dir,
+            "vmlinux": vmlinux_path,
+            "return_code": -1,
+            "success": False,
+            "artifact_path": None,
+            "sha256": None,
+            "log_path": log_path,
+            "error": None,
+            "started_at": datetime.utcnow().isoformat(),
+        }
+        cmd = ["kpatch-build", "-s", source_dir, "-v", vmlinux_path, patch_path]
+        if kernel_devel_path:
+            cmd.extend(["-d", kernel_devel_path])
+        try:
+            with open(log_path, "w") as log_file:
+                proc = subprocess.run(
+                    cmd, stdout=log_file, stderr=subprocess.STDOUT, timeout=1800)
+            result["return_code"] = proc.returncode
+            result["success"] = proc.returncode == 0
+            if proc.returncode == 0:
+                ko_path = self._find_ko(source_dir)
+                if ko_path:
+                    result["sha256"] = self._hash_file(ko_path)
+                    dest = os.path.join(self.artifacts_dir, "livepatch.ko")
+                    shutil.copy2(ko_path, dest)
+                    result["artifact_path"] = dest
+                    with open(os.path.join(self.artifacts_dir, "livepatch.ko.sha256"), "w") as f:
+                        f.write(f"{result['sha256']}  livepatch.ko\n")
+        except subprocess.TimeoutExpired:
+            result["error"] = "Build timed out after 30 minutes"
+        except FileNotFoundError:
+            result["error"] = "kpatch-build not found in PATH"
+        except Exception as e:
+            result["error"] = str(e)
+        result["finished_at"] = datetime.utcnow().isoformat()
+        tool_result_path = os.path.join(self.logs_dir, f"build_result_{attempt}.json")
+        with open(tool_result_path, "w") as f:
+            json.dump(result, f, indent=2)
+        return result
+
+    def check_environment(self) -> Dict:
+        env_check = {"kpatch_build": False, "gcc": False, "make": False}
+        for cmd in ["kpatch-build", "gcc", "make"]:
+            try:
+                subprocess.run([cmd, "--version"], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=10)
+                env_check[cmd.replace("-", "_")] = True
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+        return env_check
+
+    def _find_ko(self, source_dir: str) -> Optional[str]:
+        for root, dirs, files in os.walk(source_dir):
+            for f in files:
+                if f.endswith(".ko") and "livepatch" in f:
+                    return os.path.join(root, f)
+        return None
+
+    @staticmethod
+    def _hash_file(path: str) -> str:
+        sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
