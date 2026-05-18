@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    working_dir: /app
+    # Default: run tests
+    command: ["python", "-m", "pytest", "tests/", "-v"]
+
+  agent-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    working_dir: /app
+    # Interactive development shell
+    stdin_open: true
+    tty: true
+    entrypoint: ["/bin/bash"]
+
+  agent-run:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - agent-output:/tmp/test_workspace
+    working_dir: /app
+    # Run with sample CVEs
+    command: ["python", "-m", "agent", "--cves", "sample_cves.txt", "--workdir", "/tmp/test_workspace"]
+
+volumes:
+  agent-output:

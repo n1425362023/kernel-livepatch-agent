@@ -2246,3 +2246,236 @@ class TestRewriteAdvisor:
 - [ ] **Step 6: Run all tests**
 
 Run: `cd /tmp/opencode/kernel-livepatch-agent && python3 -m pytest tests/ -v`
+
+---
+
+### Task 10: Environment Configuration & Deployment Guide
+
+**Files:**
+- Create: `Dockerfile` - Containerized development environment
+- Create: `docker-compose.yml` - Multi-service orchestration
+- Create: `.dockerignore` - Docker build context filter
+- Create: `setup_env.sh` - WSL2 / Linux VM setup script
+- Create: `.env.example` - Environment variable template
+
+- [ ] **Step 1: Write Dockerfile**
+
+```dockerfile
+FROM python:3.10-slim
+
+LABEL description="Kernel CVE Livepatch Auto-Generation Agent - Development Environment"
+LABEL version="0.1.0"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc make git patch diffutils binutils \
+    libelf-dev libssl-dev kmod \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir pytest
+RUN mkdir -p /tmp/test_workspace
+
+CMD ["python", "-m", "pytest", "tests/", "-v"]
+```
+
+- [ ] **Step 2: Write docker-compose.yml**
+
+```yaml
+version: "3.8"
+services:
+  agent:
+    build: { context: ., dockerfile: Dockerfile }
+    volumes: [".:/app"]
+    working_dir: /app
+    command: ["python", "-m", "pytest", "tests/", "-v"]
+
+  agent-dev:
+    build: { context: ., dockerfile: Dockerfile }
+    volumes: [".:/app"]
+    working_dir: /app
+    stdin_open: true
+    tty: true
+    entrypoint: ["/bin/bash"]
+
+  agent-run:
+    build: { context: ., dockerfile: Dockerfile }
+    volumes: [".:/app", "agent-output:/tmp/test_workspace"]
+    working_dir: /app
+    command: ["python", "-m", "agent", "--cves", "sample_cves.txt", "--workdir", "/tmp/test_workspace"]
+
+volumes:
+  agent-output:
+```
+
+- [ ] **Step 3: Write .dockerignore**
+
+```
+__pycache__/
+*.pyc
+.git/
+.sisyphus/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+test_run/
+*.md
+```
+
+- [ ] **Step 4: Write setup_env.sh**
+
+Bash script for WSL2 / Linux VM full environment setup. Installs kpatch, kernel source prerequisites, and Python venv.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+# See setup_env.sh for full content
+# Installs: gcc, make, git, kpatch, python3-venv, pytest
+# Optional: downloads kernel source tree for kpatch-build integration
+```
+
+- [ ] **Step 5: Write .env.example**
+
+```
+# Kernel Livepatch Agent Environment Variables
+KERNEL_VERSION=6.6.102-5.2.an23.x86_64
+KERNEL_SOURCE_DIR=/opt/kernel-src/linux-6.6
+VMLINUX_PATH=/opt/kernel-src/linux-6.6/vmlinux
+MAX_ATTEMPTS=5
+VM_HOST=                    # Optional: SSH target for .ko verification
+```
+
+- [ ] **Step 6: Verify Docker build**
+
+Run: `docker compose up agent`
+Expected: All 30 tests pass inside container.
+
+---
+
+## Environment Setup Guide
+
+### Tier 1: Python Agent (Available Now - Windows/Linux/macOS)
+
+No special setup required. The Agent pipeline runs on any platform with Python 3.10+.
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+pip install pytest
+
+# Run tests
+python -m pytest tests/ -v
+
+# Run agent with sample CVEs
+python run --cves sample_cves.txt --workdir ./test_run
+```
+
+**What works:** Full pipeline orchestration (resolve → fetch → parse → analyze → classify → rewrite → report). Build and verification steps are gracefully skipped when Linux tools are unavailable.
+
+### Tier 2: Docker Container (Requires Docker Desktop)
+
+```bash
+# Build and run tests
+docker compose up agent
+
+# Interactive development shell
+docker compose run --rm agent-dev
+
+# Run agent with sample CVEs
+docker compose up agent-run
+```
+
+**What works:** Everything in Tier 1, plus build toolchain (gcc, make, patch). kpatch-build commands will fail without kernel source, but the pipeline handles this gracefully.
+
+### Tier 3: Full kpatch-build Integration (Requires WSL2 / Linux VM + ~5GB disk)
+
+#### Prerequisites
+- WSL2 with Ubuntu 20.04+ or a Linux VM
+- Docker Desktop (optional, for containerized builds)
+- ~5GB free disk space for kernel source tree
+
+#### Quick Setup (WSL2)
+
+```bash
+# Clone repository
+git clone https://github.com/n1425362023/kernel-livepatch-agent.git
+cd kernel-livepatch-agent
+
+# Run setup script
+chmod +x setup_env.sh
+bash setup_env.sh
+```
+
+#### Manual Setup
+
+```bash
+# 1. Install build dependencies
+sudo apt-get update
+sudo apt-get install -y gcc make git patch diffutils binutils \
+    libelf-dev libssl-dev kmod python3 python3-pip \
+    fakeroot dpkg-dev debhelper bc bison flex libncurses-dev
+
+# 2. Install kpatch
+git clone https://github.com/dynup/kpatch.git /tmp/kpatch
+cd /tmp/kpatch && make && sudo make install
+
+# 3. Clone matching kernel source tree
+# For Anolis OS:
+git clone --depth=1 https://gitee.com/anolis/cloud-kernel.git /opt/kernel-src/linux-6.6
+# For mainline:
+# git clone --depth=1 --branch v6.6 \
+#   https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git \
+#   /opt/kernel-src/linux-6.6
+
+# 4. Configure and build vmlinux
+cd /opt/kernel-src/linux-6.6
+make defconfig
+make -j$(nproc) vmlinux
+
+# 5. Setup Python venv
+cd kernel-livepatch-agent
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt pytest
+
+# 6. Run agent
+python run --cves sample_cves.txt \
+    --kernel-version "6.6.102-5.2.an23.x86_64" \
+    --workdir ./test_run
+```
+
+#### Environment Variables
+
+Copy `.env.example` and configure:
+
+```bash
+export KERNEL_VERSION=6.6.102-5.2.an23.x86_64
+export KERNEL_SOURCE_DIR=/opt/kernel-src/linux-6.6
+export VMLINUX_PATH=/opt/kernel-src/linux-6.6/vmlinux
+```
+
+#### VM Verification (Optional)
+
+For remote .ko loading verification:
+
+```bash
+# Setup SSH access to target VM
+export VM_HOST=root@192.168.122.100
+
+# The agent will use kpatch load/unload via SSH
+python run --cves sample_cves.txt --workdir ./test_run
+```
+
+### Kernel Source Notes
+
+| Kernel Type | Source URL | Notes |
+|-------------|-----------|-------|
+| Anolis OS | `https://gitee.com/anolis/cloud-kernel.git` | Match exact version tag |
+| RHEL/CentOS | `https://git.centos.org/rpms/kernel` | Use CentOS Stream SIG |
+| Mainline | `https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git` | Use `--branch v6.6` |
+
+**Important:** The kernel source version MUST match the target `--kernel-version` exactly. Mismatched versions will cause build failures that the agent cannot automatically resolve.
