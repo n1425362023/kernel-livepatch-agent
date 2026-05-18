@@ -1,6 +1,7 @@
 """Verifier - validates livepatch .ko in target VM environment."""
 import json
 import os
+import re
 import subprocess
 import hashlib
 from datetime import datetime
@@ -16,6 +17,11 @@ class Verifier:
         self.logs_dir = os.path.join(workdir, cve_id, "logs")
         self.artifacts_dir = os.path.join(workdir, cve_id, "artifacts")
         os.makedirs(self.logs_dir, exist_ok=True)
+
+    @staticmethod
+    def _validate_vm_host(vm_host: str) -> bool:
+        """Validate vm_host format: user@hostname or hostname only. Prevents shell injection."""
+        return bool(re.match(r'^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+$', vm_host))
 
     def verify(self, ko_path: str, vm_host: Optional[str] = None, attempt: int = 1) -> Dict:
         verify_log = os.path.join(self.logs_dir, f"verify_{attempt}.log")
@@ -55,6 +61,14 @@ class Verifier:
         return result
 
     def _verify_remote(self, ko_path: str, vm_host: str, verify_log: str, dmesg_log: str) -> Dict:
+        if not self._validate_vm_host(vm_host):
+            return {
+                "artifact": {"path": ko_path, "sha256": self._hash_file(ko_path)},
+                "target_kernel": self._get_target_kernel(),
+                "load": None, "runtime_check": None, "unload": None, "dmesg": dmesg_log,
+                "result": "failed",
+                "error": f"Invalid vm_host format: {vm_host}",
+            }
         result = {
             "artifact": {"path": ko_path, "sha256": self._hash_file(ko_path)},
             "target_kernel": self._get_target_kernel(),
@@ -66,39 +80,45 @@ class Verifier:
             except Exception as e:
                 log.write(f"SCP failed: {e}\n")
             try:
-                proc = subprocess.run(["ssh", vm_host, "uname -r"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                proc = subprocess.run(["ssh", vm_host, "uname", "-r"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
                 uname = proc.stdout.decode().strip()
                 log.write(f"Target uname -r: {uname}\n")
                 result["target_kernel"] = uname
             except Exception as e:
                 log.write(f"SSH uname failed: {e}\n")
             try:
-                proc = subprocess.run(["ssh", vm_host, "kpatch load /tmp/livepatch.ko; echo 'RC:' $?"],
-                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-                load_output = proc.stdout.decode()
-                log.write(f"Load output: {load_output}\n")
-                result["load"] = {"return_code": 0 if "RC:0" in load_output else 1}
+                proc = subprocess.run(
+                    ["ssh", vm_host, "kpatch", "load", "/tmp/livepatch.ko"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+                )
+                log.write(f"Load output: {proc.stdout.decode()}\n")
+                result["load"] = {"return_code": proc.returncode}
             except Exception as e:
                 log.write(f"Load failed: {e}\n")
                 result["load"] = {"return_code": -1, "error": str(e)}
             try:
-                proc = subprocess.run(["ssh", vm_host, "kpatch list"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                proc = subprocess.run(["ssh", vm_host, "kpatch", "list"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
                 result["runtime_check"] = {"result": "check_performed", "kpatch_list": proc.stdout.decode()}
             except Exception as e:
                 log.write(f"kpatch list failed: {e}\n")
             try:
-                proc = subprocess.run(["ssh", vm_host, "kpatch unload livepatch; echo 'RC:' $?"],
-                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-                unload_output = proc.stdout.decode()
-                log.write(f"Unload output: {unload_output}\n")
-                result["unload"] = {"return_code": 0 if "RC:0" in unload_output else 1}
+                proc = subprocess.run(
+                    ["ssh", vm_host, "kpatch", "unload", "livepatch"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+                )
+                log.write(f"Unload output: {proc.stdout.decode()}\n")
+                result["unload"] = {"return_code": proc.returncode}
             except Exception as e:
                 log.write(f"Unload failed: {e}\n")
                 result["unload"] = {"return_code": -1, "error": str(e)}
             try:
-                proc = subprocess.run(["ssh", vm_host, "dmesg | tail -200"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                proc = subprocess.run(
+                    ["ssh", vm_host, "dmesg"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+                )
+                dmesg_output = proc.stdout.decode()
                 with open(dmesg_log, "w") as dm:
-                    dm.write(proc.stdout.decode())
+                    dm.write(dmesg_output[-10000:] if len(dmesg_output) > 10000 else dmesg_output)
                 result["dmesg"] = dmesg_log
             except Exception as e:
                 log.write(f"dmesg failed: {e}\n")

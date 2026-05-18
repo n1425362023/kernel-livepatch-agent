@@ -2,6 +2,7 @@
 import json
 import os
 import datetime
+from datetime import timezone
 from typing import Optional, Dict, Any, List
 
 
@@ -25,7 +26,7 @@ class StateManager:
     def init_run_config(self, cve_ids: List[str], kernel_version: str,
                         max_attempts: int = 5) -> Dict:
         config = {
-            "created_at": datetime.datetime.utcnow().isoformat(),
+            "created_at": datetime.datetime.now(timezone.utc).isoformat(),
             "kernel_version": kernel_version,
             "max_attempts": max_attempts,
             "cve_count": len(cve_ids),
@@ -46,8 +47,8 @@ class StateManager:
             "attempt": 0,
             "max_attempts": self.get_run_config().get("max_attempts", 5),
             "status": None,
-            "created_at": datetime.datetime.utcnow().isoformat(),
-            "updated_at": datetime.datetime.utcnow().isoformat(),
+            "created_at": datetime.datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.datetime.now(timezone.utc).isoformat(),
             "last_error": None,
             "evidence_paths": {},
         }
@@ -60,10 +61,11 @@ class StateManager:
     def transition_to(self, cve_id: str, new_state: str,
                       reason: str = "", evidence: Optional[Dict] = None):
         state = self.get_state(cve_id)
-        assert new_state in VALID_STATES, f"Invalid state: {new_state}"
+        if new_state not in VALID_STATES:
+            raise ValueError(f"Invalid state: {new_state}")
         old_state = state["state"]
         state["state"] = new_state
-        state["updated_at"] = datetime.datetime.utcnow().isoformat()
+        state["updated_at"] = datetime.datetime.now(timezone.utc).isoformat()
         if evidence:
             state["evidence_paths"].update(evidence)
         transition = {
@@ -73,31 +75,32 @@ class StateManager:
             "timestamp": state["updated_at"],
         }
         events = self._read_json(
-            os.path.join(self.workdir, cve_id, "events.jsonl"), default=[])
+            os.path.join(self.workdir, cve_id, "events.json"), default=[])
         events.append(transition)
         self._write_json(
-            os.path.join(self.workdir, cve_id, "events.jsonl"), events)
+            os.path.join(self.workdir, cve_id, "events.json"), events)
         self._write_json(os.path.join(self.workdir, cve_id, "state.json"), state)
         return state
 
     def increment_attempt(self, cve_id: str) -> int:
         state = self.get_state(cve_id)
         state["attempt"] += 1
-        state["updated_at"] = datetime.datetime.utcnow().isoformat()
+        state["updated_at"] = datetime.datetime.now(timezone.utc).isoformat()
         self._write_json(os.path.join(self.workdir, cve_id, "state.json"), state)
         return state["attempt"]
 
     def set_final_status(self, cve_id: str, status: str):
-        assert status in VALID_FINAL_STATUSES, f"Invalid final status: {status}"
+        if status not in VALID_FINAL_STATUSES:
+            raise ValueError(f"Invalid final status: {status}")
         state = self.get_state(cve_id)
         state["status"] = status
-        state["updated_at"] = datetime.datetime.utcnow().isoformat()
+        state["updated_at"] = datetime.datetime.now(timezone.utc).isoformat()
         self._write_json(os.path.join(self.workdir, cve_id, "state.json"), state)
 
     def set_error(self, cve_id: str, error: str):
         state = self.get_state(cve_id)
         state["last_error"] = error
-        state["updated_at"] = datetime.datetime.utcnow().isoformat()
+        state["updated_at"] = datetime.datetime.now(timezone.utc).isoformat()
         self._write_json(os.path.join(self.workdir, cve_id, "state.json"), state)
 
     def cve_dir(self, cve_id: str) -> str:

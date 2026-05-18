@@ -69,7 +69,7 @@ class PatchParser:
     def _extract_functions(self, content: str, files: List[Dict]) -> List[Dict]:
         functions = []
         seen = set()
-        for match in re.finditer(r'@@.*@@\s*(.*?)(?=\n[+-])', content):
+        for match in re.finditer(r'^@@[^\n]+@@\s*([^\n]*)', content, re.MULTILINE):
             func_hint = match.group(1).strip()
             func_match = re.search(r'(\w+)\s*\(', func_hint)
             if func_match and func_match.group(1) not in seen:
@@ -89,7 +89,8 @@ class PatchParser:
 
     def _function_risk_tags(self, content: str, func_name: str) -> List[str]:
         tags = []
-        func_region = re.search(rf'[+-].*{re.escape(func_name)}.*(?:\n[+-].*)*', content)
+        # Bounded quantifier prevents catastrophic backtracking on large diffs
+        func_region = re.search(rf'[+-].*{re.escape(func_name)}[^\n]*(?:\n[+-][^\n]*){{0,100}}', content)
         if func_region:
             region = func_region.group()
             if self.INIT_PATTERN.search(region):

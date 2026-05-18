@@ -28,7 +28,7 @@ class TestStateManager:
         state = self.sm.transition_to("CVE-2026-0001", "CveResolved", reason="NVD query completed")
         assert state["state"] == "CveResolved"
         cve_dir = os.path.join(self.tmpdir, "CVE-2026-0001")
-        events_path = os.path.join(cve_dir, "events.jsonl")
+        events_path = os.path.join(cve_dir, "events.json")
         assert os.path.exists(events_path)
 
     def test_increment_attempt(self):

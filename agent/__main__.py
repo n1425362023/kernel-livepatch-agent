@@ -11,6 +11,9 @@ import sys
 import json
 import datetime
 import re
+import subprocess
+
+from typing import Dict, List
 
 from agent.state import StateManager
 from agent.planner import Planner
@@ -64,7 +67,7 @@ def parse_cves_file(path: str) -> list:
 # Action executors – each maps to one planner action
 # ---------------------------------------------------------------------------
 
-def _action_resolve_cve(cve_id, workdir, state_mgr):
+def _action_resolve_cve(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Query NVD + Linux stable for CVE metadata."""
     resolver = CVEResolver(workdir, cve_id)
     result = resolver.resolve()
@@ -73,7 +76,7 @@ def _action_resolve_cve(cve_id, workdir, state_mgr):
     return result
 
 
-def _action_fetch_patch(cve_id, workdir, state_mgr):
+def _action_fetch_patch(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Download original patch from Linux stable or NVD references."""
     fetcher = PatchFetcher(workdir, cve_id)
     # Try to get patch URL from CVE metadata
@@ -113,7 +116,7 @@ def _action_fetch_patch(cve_id, workdir, state_mgr):
     return result
 
 
-def _action_analyze_patch(cve_id, workdir, state_mgr):
+def _action_analyze_patch(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Parse unified diff into patch_ir.json and change_units.json."""
     patch_path = os.path.join(workdir, cve_id, "patches", "original.patch")
     parser = PatchParser(workdir, cve_id)
@@ -123,7 +126,7 @@ def _action_analyze_patch(cve_id, workdir, state_mgr):
     return patch_ir
 
 
-def _action_check_target(cve_id, workdir, state_mgr):
+def _action_check_target(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Check target kernel source tree availability."""
     run_config = state_mgr.get_run_config()
     kernel_version = run_config.get("kernel_version", "6.6.102-5.2.an23.x86_64")
@@ -144,15 +147,16 @@ def _action_check_target(cve_id, workdir, state_mgr):
     return target_status
 
 
-def _action_apply_patch(cve_id, workdir, state_mgr):
+def _action_apply_patch(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Dry-run patch application against target source."""
     state = state_mgr.get_state(cve_id)
     attempt = state.get("attempt", 0)
 
-    # Determine which patch to apply
+    # Determine which patch to apply: try attempt-specific patch first, fall back to original
     if attempt > 0:
-        patch_path = os.path.join(workdir, cve_id, "patches",
-                                  f"attempt_{attempt}.patch")
+        patch_path = os.path.join(workdir, cve_id, "patches", f"attempt_{attempt}.patch")
+        if not os.path.isfile(patch_path):
+            patch_path = os.path.join(workdir, cve_id, "patches", "original.patch")
     else:
         patch_path = os.path.join(workdir, cve_id, "patches", "original.patch")
 
@@ -166,7 +170,6 @@ def _action_apply_patch(cve_id, workdir, state_mgr):
 
     if os.path.isdir(source_dir) and os.path.isfile(patch_path):
         try:
-            import subprocess
             proc = subprocess.run(
                 ["git", "apply", "--check", patch_path],
                 cwd=source_dir, capture_output=True, text=True, timeout=30)
@@ -184,16 +187,16 @@ def _action_apply_patch(cve_id, workdir, state_mgr):
     return result
 
 
-def _action_run_build(cve_id, workdir, state_mgr):
+def _action_run_build(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Run kpatch-build on the current patch."""
     state = state_mgr.get_state(cve_id)
     attempt = state.get("attempt", 0)
-    if attempt == 0:
-        attempt = 1
 
+    # Determine which patch to build: try attempt-specific patch first, fall back to original
     if attempt > 0:
-        patch_path = os.path.join(workdir, cve_id, "patches",
-                                  f"attempt_{attempt}.patch")
+        patch_path = os.path.join(workdir, cve_id, "patches", f"attempt_{attempt}.patch")
+        if not os.path.isfile(patch_path):
+            patch_path = os.path.join(workdir, cve_id, "patches", "original.patch")
     else:
         patch_path = os.path.join(workdir, cve_id, "patches", "original.patch")
 
@@ -218,13 +221,13 @@ def _action_run_build(cve_id, workdir, state_mgr):
     return result
 
 
-def _action_check_build_result(cve_id, workdir, state_mgr):
+def _action_check_build_result(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Planner calls this to decide after BuildRunning; no action needed here."""
     # The state is already set by _action_run_build.
     return {"note": "State already transitioned by run_build"}
 
 
-def _action_classify_failure(cve_id, workdir, state_mgr):
+def _action_classify_failure(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Classify build failure from logs."""
     state = state_mgr.get_state(cve_id)
     attempt = state.get("attempt", 1)
@@ -248,7 +251,7 @@ def _action_classify_failure(cve_id, workdir, state_mgr):
     return failure
 
 
-def _action_classify_verify_failure(cve_id, workdir, state_mgr):
+def _action_classify_verify_failure(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Classify verification failure."""
     verify_log = os.path.join(workdir, cve_id, "logs", "verify_1.log")
     dmesg_log = os.path.join(workdir, cve_id, "logs", "dmesg_1.log")
@@ -264,7 +267,7 @@ def _action_classify_verify_failure(cve_id, workdir, state_mgr):
     return failure
 
 
-def _action_prepare_rewrite(cve_id, workdir, state_mgr):
+def _action_prepare_rewrite(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Prepare rewrite plan and generate attempt_N.patch."""
     state = state_mgr.get_state(cve_id)
     attempt = state_mgr.increment_attempt(cve_id)
@@ -301,7 +304,7 @@ def _action_prepare_rewrite(cve_id, workdir, state_mgr):
         return plan
 
 
-def _action_run_verify(cve_id, workdir, state_mgr):
+def _action_run_verify(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Verify .ko in target VM (or local modinfo if VM not available)."""
     ko_path = os.path.join(workdir, cve_id, "artifacts", "livepatch.ko")
     verifier = Verifier(workdir, cve_id)
@@ -316,12 +319,12 @@ def _action_run_verify(cve_id, workdir, state_mgr):
     return result
 
 
-def _action_check_verify_result(cve_id, workdir, state_mgr):
+def _action_check_verify_result(cve_id: str, workdir: str, state_mgr: StateManager) -> Dict:
     """Planner helper – state already set by run_verify."""
     return {"note": "State already transitioned by run_verify"}
 
 
-def _action_write_report(cve_id, workdir, state_mgr, cve_ids):
+def _action_write_report(cve_id: str, workdir: str, state_mgr: StateManager, cve_ids: List[str]) -> Dict:
     """Generate report.json for this CVE and summary.json for the batch."""
     reporter = Reporter(workdir, cve_id)
     state = state_mgr.get_state(cve_id)
@@ -348,7 +351,7 @@ def _action_write_report(cve_id, workdir, state_mgr, cve_ids):
 # Main loop
 # ---------------------------------------------------------------------------
 
-def process_cve(cve_id, workdir, state_mgr, planner, cve_ids):
+def process_cve(cve_id: str, workdir: str, state_mgr: StateManager, planner: Planner, cve_ids: List[str]) -> None:
     """Run the full pipeline for a single CVE."""
     max_iterations = 50  # Safety limit to prevent infinite loops
     iteration = 0
