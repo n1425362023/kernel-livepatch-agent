@@ -19,7 +19,7 @@ class Reporter:
         change_units = self._read_json("change_units.json", {})
         failure = self._read_json("failure.json", {})
         verification = self._read_json("verification.json", {})
-        events = self._read_json("events.jsonl", [])
+        events = self._read_json("events.json", [])
         status = state.get("status", "failed")
         if status not in ["success", "failed", "manual_required", "skipped"]:
             status = "failed"
