@@ -1,4 +1,5 @@
 """Planner - decides next action based on CVE state machine."""
+import json
 import os
 from typing import List, Optional, Dict, Any
 from agent.state import StateManager, VALID_FINAL_STATUSES
@@ -19,7 +20,7 @@ class Planner:
         if state.get("status") in VALID_FINAL_STATUSES:
             return {"action": "done", "reason": "Already in final state"}
 
-        transitions = {
+        transitions: Dict[str, Any] = {
             "TaskCreated": {"action": "resolve_cve", "next_state": "CveResolved"},
             "CveResolved": {"action": "fetch_patch", "next_state": "PatchFetched"},
             "PatchFetched": {"action": "analyze_patch", "next_state": "PatchAnalyzed"},
@@ -54,8 +55,21 @@ class Planner:
         return {"action": "unknown", "reason": f"Unknown state: {current}"}
 
     def _decide_after_classification(self, state: Dict) -> Dict:
+        """After failure classification, decide: retry with rewrite or give up."""
         attempt = state.get("attempt", 0)
         max_attempts = state.get("max_attempts", 5)
+
+        # Check if failure is non-retryable (e.g., no_fentry, struct_abi)
+        cve_id = state.get("cve_id", "")
+        if cve_id:
+            failure_path = os.path.join(self.state_mgr.workdir, cve_id, "failure.json")
+            if os.path.exists(failure_path):
+                with open(failure_path) as f:
+                    failure = json.load(f)
+                if not failure.get("retryable", True):
+                    return {"action": "done", "next_state": "ManualRequired",
+                            "reason": f"Non-retryable failure: {failure.get('reason_code', 'unknown')}"}
+
         if attempt < max_attempts:
             return {"action": "prepare_rewrite", "next_state": "RewritePrepared"}
         else:

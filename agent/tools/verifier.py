@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 

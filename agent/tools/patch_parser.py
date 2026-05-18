@@ -3,7 +3,7 @@ import json
 import os
 import re
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class PatchParser:
@@ -42,7 +42,7 @@ class PatchParser:
         semantic_summary = self._generate_semantic_summary(content)
         patch_ir = {
             "cve_id": self.cve_id,
-            "parsed_at": datetime.utcnow().isoformat(),
+            "parsed_at": datetime.now(timezone.utc).isoformat(),
             "files": files,
             "functions": functions,
             "risk_tags": list(set(risk_tags)),

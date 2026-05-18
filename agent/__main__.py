@@ -362,17 +362,17 @@ def process_cve(cve_id: str, workdir: str, state_mgr: StateManager, planner: Pla
         action = decision.get("action", "unknown")
 
         if action == "done":
-            # Already in final state or max attempts reached
-            if decision.get("next_state") in ("Failed", "ManualRequired"):
-                # Ensure final status is set
-                if decision["next_state"] == "Failed":
-                    state_mgr.set_final_status(cve_id, "failed")
-                elif decision["next_state"] == "ManualRequired":
-                    state_mgr.set_final_status(cve_id, "manual_required")
-                state_mgr.transition_to(cve_id, "ReportWritten",
-                                        reason=decision.get("reason", "Finalized"))
-                # Generate the report
-                _action_write_report(cve_id, workdir, state_mgr, cve_ids)
+            # Ensure final status and report are generated for all exit paths
+            next_st = decision.get("next_state")
+            if next_st == "Failed":
+                state_mgr.set_final_status(cve_id, "failed")
+            elif next_st == "ManualRequired" or state_mgr.get_state(cve_id).get("status") == "manual_required":
+                state_mgr.set_final_status(cve_id, "manual_required")
+            elif not state_mgr.get_state(cve_id).get("status"):
+                state_mgr.set_final_status(cve_id, "failed")
+            state_mgr.transition_to(cve_id, "ReportWritten",
+                                    reason=decision.get("reason", "Finalized"))
+            _action_write_report(cve_id, workdir, state_mgr, cve_ids)
             break
 
         if action == "unknown":
@@ -451,7 +451,7 @@ def main():
     if args.workdir:
         workdir = args.workdir
     else:
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
         workdir = os.path.join(os.getcwd(), f"run_{timestamp}")
 
     os.makedirs(workdir, exist_ok=True)

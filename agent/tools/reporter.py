@@ -1,17 +1,17 @@
 """Reporter - generates report.json and summary.json from CVE processing results."""
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 
 class Reporter:
     """Generate structured reports from CVE processing artifacts."""
 
-    def __init__(self, workdir: str, cve_id: str):
+    def __init__(self, workdir: str, cve_id: str = ""):
         self.workdir = workdir
         self.cve_id = cve_id
-        self.cve_dir = os.path.join(workdir, cve_id)
+        self.cve_dir = os.path.join(workdir, cve_id) if cve_id else workdir
 
     def generate_report(self) -> Dict:
         state = self._read_json("state.json")
@@ -79,7 +79,7 @@ class Reporter:
                 elif status == "manual_required": manual_count += 1
                 elif status == "skipped": skipped_count += 1
         summary = {
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "kernel_version": self._get_kernel_version(),
             "total_cves": len(cve_ids),
             "results": {"success": success_count, "failed": failed_count,

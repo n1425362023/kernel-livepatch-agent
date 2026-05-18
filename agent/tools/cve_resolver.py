@@ -3,7 +3,7 @@ import json
 import os
 import re
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 
@@ -93,7 +93,7 @@ class CVEResolver:
             "cve_id": self.cve_id,
             "nvd": nvd_data,
             "candidates": candidates,
-            "resolved_at": datetime.utcnow().isoformat(),
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
         }
         self._save_metadata("cve_metadata.json", result)
         return result

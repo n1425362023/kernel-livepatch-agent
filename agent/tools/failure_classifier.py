@@ -3,7 +3,7 @@ import json
 import os
 import re
 from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class FailureClassifier:
@@ -106,7 +106,7 @@ class FailureClassifier:
                         "summary": f"Matched error pattern: {pattern['pattern_id']}",
                         "signals": signals, "location": location,
                         "related_inputs": {"build_log": build_log_path},
-                        "classified_at": datetime.utcnow().isoformat(),
+                        "classified_at": datetime.now(timezone.utc).isoformat(),
                     }
                     cve_dir = os.path.join(self.workdir, self.cve_id)
                     with open(os.path.join(cve_dir, "failure.json"), "w") as f:
@@ -120,7 +120,7 @@ class FailureClassifier:
             "summary": "Build failure not recognized by any rule pattern",
             "signals": [{"pattern": "unrecognized", "source": build_log_path}],
             "location": {}, "related_inputs": {"build_log": build_log_path},
-            "classified_at": datetime.utcnow().isoformat(),
+            "classified_at": datetime.now(timezone.utc).isoformat(),
         }
         cve_dir = os.path.join(self.workdir, self.cve_id)
         with open(os.path.join(cve_dir, "failure.json"), "w") as f:
@@ -148,7 +148,7 @@ class FailureClassifier:
             "stage": "verify", "category": "verify",
             "reason_code": "verify_failed", "retryable": False,
             "next_action": "manual_required",
-            "classified_at": datetime.utcnow().isoformat(),
+            "classified_at": datetime.now(timezone.utc).isoformat(),
         }
         if os.path.exists(verify_log_path):
             with open(verify_log_path) as f:

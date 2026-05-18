@@ -1,8 +1,9 @@
 """Rewrite Advisor - rule-based and LLM-assisted patch adaptation."""
 import json
 import os
+import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 
@@ -58,7 +59,7 @@ class RewriteAdvisor:
             "semantic_must_keep": strategy_info.get("semantic_guard", []),
             "planned_edits": self._generate_planned_edits(affected_unit, strategy),
             "validation_required": ["git apply --check", "kpatch-build"],
-            "plan_created_at": datetime.utcnow().isoformat(),
+            "plan_created_at": datetime.now(timezone.utc).isoformat(),
         }
         cve_dir = os.path.join(self.workdir, self.cve_id)
         with open(os.path.join(cve_dir, "rewrite_plan.json"), "w") as f:
@@ -74,7 +75,7 @@ class RewriteAdvisor:
         if os.path.exists(original_patch_path):
             shutil.copy2(original_patch_path, output_path)
             result = {"success": True, "output_path": output_path, "strategy": rewrite_plan.get("strategy"),
-                      "applied_at": datetime.utcnow().isoformat()}
+                      "applied_at": datetime.now(timezone.utc).isoformat()}
         else:
             result = {"success": False, "error": f"Original patch not found: {original_patch_path}", "output_path": None}
         attempt_record = {

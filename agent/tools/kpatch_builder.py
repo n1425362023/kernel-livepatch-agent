@@ -3,8 +3,7 @@ import json
 import os
 import subprocess
 import hashlib
-import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 
@@ -35,7 +34,7 @@ class KpatchBuilder:
             "sha256": None,
             "log_path": log_path,
             "error": None,
-            "started_at": datetime.utcnow().isoformat(),
+            "started_at": datetime.now(timezone.utc).isoformat(),
         }
         cmd = ["kpatch-build", "-s", source_dir, "-v", vmlinux_path, patch_path]
         if kernel_devel_path:
@@ -61,7 +60,7 @@ class KpatchBuilder:
             result["error"] = "kpatch-build not found in PATH"
         except Exception as e:
             result["error"] = str(e)
-        result["finished_at"] = datetime.utcnow().isoformat()
+        result["finished_at"] = datetime.now(timezone.utc).isoformat()
         tool_result_path = os.path.join(self.logs_dir, f"build_result_{attempt}.json")
         with open(tool_result_path, "w") as f:
             json.dump(result, f, indent=2)
